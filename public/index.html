@@ -137,6 +137,10 @@
   	color: white;
   }
 
+  section > ul > li .locked {
+    color: lightgreen;
+  }
+
 	section > ul > li:hover {
 		color: #AAA;
 	}
@@ -400,6 +404,11 @@
     if (!curr_file) {
     	jQuery('#file_browser li:first .fname').click()
     }
+
+    var locked = jQuery("#file_browser ul li .fname").filter(function(i, e) {
+    	return jQuery(e).text() in r.locks;
+  	})
+    locked.addClass('locked')
 
     if (curr_file in r.locks && r.locks[curr_file] != user_id) {
         // there is a valid lock for the current file, and it's not me
