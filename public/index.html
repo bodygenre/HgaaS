@@ -43,51 +43,14 @@
 <div id="logsPanel">
 	<section id="log">
 	  <pre>
-	Tue Nov 15 17:44:26 PST 2022
-	Tue Nov 15 17:44:27 PST 2022
-	Tue Nov 15 17:44:28 PST 2022
-	Tue Nov 15 17:44:29 PST 2022
-	Tue Nov 15 17:44:30 PST 2022
-	Tue Nov 15 17:44:31 PST 2022
-	Tue Nov 15 17:44:32 PST 2022
-	Tue Nov 15 17:44:33 PST 2022
-	Tue Nov 15 17:44:34 PST 2022
-	Tue Nov 15 17:44:36 PST 2022
-	Tue Nov 15 17:44:37 PST 2022
-	Tue Nov 15 17:44:38 PST 2022
-			</pre>
+      </pre>
 	</section>
   </div>
 <div class="panels">
   <div id="left_panel">
     <section id="editor">
       <textarea id="myTextarea">
-  // sample code, NOT REAL
-  
-  var editor = CodeMirror.fromTextArea(myTextarea, {
-	  lineNumbers: true,
-	  mode: 'text/javascript'
-	});
-  
-	var curr_file = ""
-  
-	function loadFile(fname) {
-		jQuery.get('/read?fname=' + fname).then(function(r) {
-			editor.setValue(r.content)
-			curr_file = fname
-			if (curr_file.endsWith('.py')) {
-				editor.setMode('text/python')
-			} else if (curr_file.endsWith('.js')) {
-				editor.setMode('text/javascript')
-			} else if (curr_file.endsWith('.html')) {
-				editor.setMode('text/html')
-			} else if (curr_file.endsWith('.css')) {
-				editor.setMode('text/css')
-			}
-		})
-	}
-		  </textarea
-      >
+	  </textarea>
     </section>
   </div>
   <section id="file_browser" class="frosted-panel">
@@ -112,12 +75,6 @@
   	</div>
   	
     <ul>
-      <li>index.html</li>
-      <li>server.py</li>
-      <li>modules/getbest.py</li>
-      <li>modules/torrents.py</li>
-      <li>modules/judy.py</li>
-      <li>README.md</li>
     </ul>
   </section>
 </div>
@@ -284,6 +241,10 @@
 		word-break: break-all;
   }
 
+  .CodeMirror.readonly {
+    background: rgba(25, 0, 13, 60%) !important;
+  }
+
   .CodeMirror.hideme {
 		height: 10%;
 		transition: height 0.5s ease-in-out;
@@ -311,6 +272,74 @@
 </style>
 
 <script>
+  jQuery.get('/last_restart', function(d) { setInterval(function() { jQuery.get('/last_restart', function(dd) { if (d != dd) window.location.reload(); }) }, 1000) })
+
+  function uuidv4() {
+    return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    );
+  }
+
+  var user_id = uuidv4()
+
+
+  function get(url, fn) {
+    if (!fn) fn = function(){}
+    jQuery.ajax({
+      url: url,
+      headers: { "X-user-id": user_id },
+      type: "GET",
+    }).done(fn)
+  }
+  function post(url, data, fn) {
+    if (!fn) fn = function(){}
+    jQuery.ajax({
+      url: url,
+      headers: { "X-user-id": user_id },
+      contentType: "application/json",
+      data: JSON.stringify(data),
+      type: "POST",
+    }).done(fn)
+  }
+
+
+
+  function mywebsocket(user_id) {
+    this.ws = new WebSocket('ws://' + window.location.host + '/ws')
+    this.handlers = {}
+    this.buffer = [user_id]
+    this.ws.addEventListener('open', this._onopen.bind(this))
+    this.ws.addEventListener('message', this._onmessage.bind(this))
+  }
+  mywebsocket.prototype._onopen = function(e) {
+    while (this.buffer.length > 0) this.ws.send(JSON.stringify(this.buffer.pop()));
+  }
+  mywebsocket.prototype._onmessage = function(e) {
+    var d = JSON.parse(e.data)
+    if (!(d.msg in this.handlers)) return
+    if (typeof d.data == 'object' && 'user_id' in d.data && d.data.user_id == user_id) return  // do not process messages to myself
+    for (var fn of this.handlers[d.msg]) fn(d.data)
+  }
+  mywebsocket.prototype.emit = function(msg, data) {
+    if (this.ws.readyState == 0) return this.buffer.push({ msg:msg, data:data })
+    this.ws.send(JSON.stringify({ msg: msg, data: data }))
+  }
+  mywebsocket.prototype.on = function(msg, fn) {
+    if (!(msg in this.handlers)) this.handlers[msg] = []
+    this.handlers[msg].push(fn)
+  }
+
+
+
+  var socket = new mywebsocket(user_id)
+
+  socket.on("update", function(data) {
+    if (data.fname != curr_file) return
+    
+    editor.setValue(data.code)
+  })
+
+
   var editor = CodeMirror.fromTextArea(myTextarea, {
     lineNumbers: true,
 		lineWrapping: true,
@@ -320,9 +349,18 @@
 
   var curr_file = "";
   var first_run = true;
+  var file_locked = true;
+
+  editor.on('keyup', function() {
+    post('/update', { fname: curr_file, code: editor.getValue() })
+  })
+
+  editor.on('change', function() {
+    //post('/update', { fname: curr_file, code: editor.getValue() })
+  })
 
   function loadFile(fname) {
-    jQuery.get("/read?fname=" + fname).then(function (r) {
+    get("/read?fname=" + fname, function (r) {
       editor.setValue(r.content);
       curr_file = fname;
       if (curr_file.endsWith(".py")) {
@@ -339,55 +377,52 @@
     });
   }
 
-  function refreshFileList(initial) {
-    jQuery.get("/files").then(function (r) {
-      var html = "";
-      for (var fname of r.files) {
-        html += "<li><span class='fname'>" + fname + "</span><span class='rm'>❌</span></li>";
-      }
-      html += "";
-      jQuery("#file_browser ul").html(html);
-      jQuery("#file_browser ul li .fname").click(function (ev) {
-        loadFile(ev.currentTarget.innerText);
-        refreshFileList()
-      });
-      jQuery('#file_browser ul li .rm').click(function(ev) {
-      	var fname = jQuery(ev.currentTarget).parent().find('.fname').text().replace("./", "")
-      	if (confirm("are you sure you want to delete \"" + fname + "\"?\nhave you asked Daniel?")) {
-      		jQuery.get("/rm?fname=" + fname).then(function() { 
-      			refreshFileList()
-      		})
-      	}
-      })
-      var curr = jQuery("#file_browser ul li .fname").filter(function(i, e) {
-      	return jQuery(e).text() == curr_file;
-    	})
-    	console.log(curr.toArray())
-    	curr.addClass('current_file')
-      if (initial) {
-      	jQuery('#file_browser li:first .fname').click()
-      }
+  socket.on('files', function(r) {
+    var html = "";
+    for (var fname of r.files) {
+      html += "<li><span class='fname'>" + fname + "</span><span class='rm'>❌</span></li>";
+    }
+    html += "";
+    jQuery("#file_browser ul").html(html);
+    jQuery("#file_browser ul li .fname").click(function (ev) {
+      loadFile(ev.currentTarget.innerText);
     });
-  }
-  refreshFileList(true);
-  setInterval(refreshFileList, 10000);
+    jQuery('#file_browser ul li .rm').click(function(ev) {
+    	var fname = jQuery(ev.currentTarget).parent().find('.fname').text().replace("./", "")
+    	if (confirm("are you sure you want to delete \"" + fname + "\"?\nhave you asked Daniel?")) {
+    		get("/rm?fname=" + fname)
+    	}
+    })
+    var curr = jQuery("#file_browser ul li .fname").filter(function(i, e) {
+    	return jQuery(e).text() == curr_file;
+  	})
+  	curr.addClass('current_file')
+    if (!curr_file) {
+    	jQuery('#file_browser li:first .fname').click()
+    }
 
-  function refreshLogs() {
-    jQuery.get("/logs").then(function (r) {
-      jQuery("#log pre").html(r.content);
-    });
-  }
-  refreshLogs();
-  setInterval(refreshLogs, 1000);
+    if (curr_file in r.locks && r.locks[curr_file] != user_id) {
+        // there is a valid lock for the current file, and it's not me
+        editor.setOption('readOnly', true)
+        jQuery('.CodeMirror').addClass('readonly')
+    } else {
+        // there is no valid lock
+        if (editor.isReadOnly()) {
+            jQuery('.CodeMirror').removeClass('readonly')
+            editor.setOption('readOnly', false)
+        }
+    }
+  });
+
+  
+  socket.on('logs', function(data) {
+    jQuery("#log pre").html(data);
+  })
 
   jQuery(document).keydown(function (event) {
     if ((event.ctrlKey || event.metaKey) && event.which == 83) {
       var code = editor.getValue();
-      $.ajax("/save?fname=" + curr_file, {
-        data: JSON.stringify({ content: code }),
-        contentType: "application/json",
-        type: "POST",
-      });
+      post("/save?fname="+curr_file, { content: code })
       event.preventDefault();
       return false;
     }
@@ -403,8 +438,6 @@
 
   jQuery('#file_browser .newbutton').click(function(ev){
   	var path = prompt("enter the path of your new file:")
-  	jQuery.get('/new?fname=' + path).then(function() {
-  		refreshFileList()
-  	})
+  	get('/new?fname=' + path)
   })
 </script>
