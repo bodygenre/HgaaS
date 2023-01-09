@@ -10,6 +10,7 @@ import json
 import re
 import sys
 import ssl
+import copy
 from queue import Queue
 
 from quart_auth import basic_auth_required
@@ -61,6 +62,7 @@ blocklist_regs = [
 
 log = deque(maxlen=100)
 pid = None
+pids = []
 running = True
 
 
@@ -70,6 +72,7 @@ async def run_proc():
     while running:
         a = await asyncio.create_subprocess_shell(config['cmd'] + " 2>&1", stdout=asyncio.subprocess.PIPE, cwd=config['project_dir'])
         pid = a.pid
+        pids.append(pid)
 
         # read lines iteratively until the process exits
         while True:
@@ -96,18 +99,22 @@ async def send_logs():
 
 
 async def kill_proc():
-    global pid
-    # gotta kill the whole process tree manually
-    proc = psutil.Process(pid)
-    for p in proc.children(recursive=True):
-        try:
-            p.kill()
-        except psutil.NoSuchProcess:
-            pass
-    try: 
-        proc.kill()
-    except psutil.NoSuchProcess:
-        pass
+    global pids
+    _pids = copy.copy(pids)
+    pids.clear()
+    while len(_pids) > 0:
+      pid = _pids.pop()
+      # gotta kill the whole process tree manually
+      proc = psutil.Process(pid)
+      for p in proc.children(recursive=True):
+          try:
+              p.kill()
+          except psutil.NoSuchProcess:
+              pass
+      try: 
+          proc.kill()
+      except psutil.NoSuchProcess:
+          pass
 
 
 
