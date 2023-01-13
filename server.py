@@ -67,10 +67,10 @@ running = True
 
 
 async def run_proc():
-    global config, pid, log, running
+    global config, pid, log, running, pids
 
     while running:
-        a = await asyncio.create_subprocess_shell(config['cmd'] + " 2>&1", stdout=asyncio.subprocess.PIPE, cwd=config['project_dir'])
+        a = await asyncio.create_subprocess_shell("exec " + config['cmd'] + " 2>&1", stdout=asyncio.subprocess.PIPE, cwd=config['project_dir'])
         pid = a.pid
         pids.append(pid)
 
@@ -102,19 +102,17 @@ async def kill_proc():
     global pids
     _pids = copy.copy(pids)
     pids.clear()
-    while len(_pids) > 0:
-      pid = _pids.pop()
+    for pid in _pids:
+      print(f"killing main pid: {pid}")
       # gotta kill the whole process tree manually
       proc = psutil.Process(pid)
+      mypids = [pid]
+
       for p in proc.children(recursive=True):
-          try:
-              p.kill()
-          except psutil.NoSuchProcess:
-              pass
-      try: 
-          proc.kill()
-      except psutil.NoSuchProcess:
-          pass
+          mypids.append(p.pid)
+      for pid in mypids:
+          r = os.system(f"kill -9 {pid}")
+          print(f"killing {pid}: {r}")
 
 
 
@@ -317,6 +315,10 @@ async def close_process_after_shutdown():
     yield
     running = False
     await kill_proc()
+
+
+import atexit
+atexit.register(kill_proc)
 
 
 SSL_PROTOCOLS = (asyncio.sslproto.SSLProtocol,)
