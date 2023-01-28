@@ -98,7 +98,7 @@ async def send_logs():
         await broadcast('logs', '', "\n".join(log))
 
 
-async def kill_proc():
+def kill_proc():
     global pids
     _pids = copy.copy(pids)
     pids.clear()
@@ -111,6 +111,7 @@ async def kill_proc():
       for p in proc.children(recursive=True):
           mypids.append(p.pid)
       for pid in mypids:
+          print(f"killing {pid}")
           r = os.system(f"kill -9 {pid}")
           print(f"killing {pid}: {r}")
 
@@ -241,7 +242,7 @@ async def save():
     j = await request.get_json()
     with open(fname, 'w') as f:
         f.write(j['content'])
-    await kill_proc()
+    kill_proc()
     await commit_changes()
     return jsonify({"fname": fname})
 
@@ -257,7 +258,7 @@ async def new():
     os.makedirs(dirs, exist_ok=True)
     with open(fname, 'w') as f:
         f.write("\n\n\ndef register(bot):\n    pass\n\n\n")
-    await kill_proc()
+    kill_proc()
     await commit_changes()
     return jsonify({})
 
@@ -268,7 +269,7 @@ async def rm():
     fname = project_dir + '/' + request.args.get('fname')
     if ".." in fname: return jsonify({"error": "no."})
     os.remove(fname)
-    await kill_proc()
+    kill_proc()
     await commit_changes()
     return jsonify({})
 
@@ -277,7 +278,7 @@ async def rm():
 @app.route('/restart')
 @basic_auth_required()
 async def restart():
-    await kill_proc()
+    kill_proc()
 
 
 
@@ -314,7 +315,7 @@ async def close_process_after_shutdown():
     global running
     yield
     running = False
-    await kill_proc()
+    kill_proc()
 
 
 import atexit
